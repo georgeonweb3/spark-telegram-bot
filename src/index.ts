@@ -5456,6 +5456,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   if (text.startsWith('/')) {
     return;
   }
+	const llmOnline = await llm.isAvailable();
+if (!llmOnline) {
+  await ctx.reply(
+    '⚠️ Natural language is offline (LLM provider unreachable).\n\nTry /diagnose to check status.'
+  );
+  return;
+}
 
   const naturalRouteShadow = await recordNaturalRouteShadow(ctx, text);
   const globalAgentDoctrineRequest = isGlobalAgentDoctrineRequest(text);

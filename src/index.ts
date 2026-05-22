@@ -2010,7 +2010,6 @@ bot.start(async (ctx) => {
 
   const spawnerAvailable = await spawner.isAvailable();
 
-  const lines = [
   const lines = conversation.isAdmin(user)
     ? [
         `Hey ${name}! I'm Spark.`,

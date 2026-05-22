@@ -2011,20 +2011,26 @@ bot.start(async (ctx) => {
   const spawnerAvailable = await spawner.isAvailable();
 
   const lines = [
-    `Hey ${name}! I'm Spark.`,
-    '',
-    'I remember conversations through the Builder memory path.',
-    '',
-    'Memory Commands:',
-    '/remember <text> - Save something important',
-    '/recall <topic> - Ask what I remember about a topic',
-    '/about - Ask what I know about you',
-    '/forget <text> - Ask me to forget a saved detail',
-    '',
-    'Spark Intelligence:',
-    '/spark - System status'
-  ];
-
+  const lines = conversation.isAdmin(user)
+    ? [
+        `Hey ${name}! I'm Spark.`,
+        '',
+        'I remember conversations through the Builder memory path.',
+        '',
+        'Memory Commands:',
+        '/remember <text> - Save something important',
+        '/recall <topic> - Ask what I remember about a topic',
+        '/about - Ask what I know about you',
+        '/forget <text> - Ask me to forget a saved detail',
+        '',
+        'Spark Intelligence:',
+        '/spark - System status'
+      ]
+    : [
+        `Hey ${name}! I'm Spark.`,
+        '',
+        'Try /spark for system status, or just chat.'
+      ];
   if (conversation.isAdmin(user)) {
     lines.push(
       '',

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { Telegraf } from 'telegraf';
 
+
 // Load base .env first, then override — before any other imports use process.env
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadEnv({ override: false });

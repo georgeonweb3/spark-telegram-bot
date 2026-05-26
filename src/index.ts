@@ -1,5 +1,5 @@
-import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
@@ -8,8 +8,9 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { Telegraf } from 'telegraf';
 
-// Load .env.override LAST with override=true. Wins over anything spark-cli
-// rewrites in .env. Never committed (.gitignored).
+// Load base .env first, then override — before any other imports use process.env
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+loadEnv({ override: false });
 loadEnv({ path: path.join(__dirname, '..', '.env.override'), override: true });
 import { message } from 'telegraf/filters';
 import {

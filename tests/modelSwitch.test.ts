@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  codexClientConfigArgsFromModelCommand,
   normalizeModelProvider,
   normalizeModelRole,
   providerIsConfigured,
@@ -35,11 +36,43 @@ test('renders a model status help surface', () => {
     const status = renderModelStatus();
     assert.match(status, /Agent chat: zai \(glm-5\.1\)/);
     assert.match(status, /Missions: codex \(gpt-5\.5\)/);
+    assert.doesNotMatch(status, /Recommended Spark provider paths/);
+    assert.doesNotMatch(status, /Choose one provider first/);
     assert.match(status, /\/model agent claude claude-sonnet-4-6/);
     assert.match(status, /\/model mission claude claude-opus-4-7/);
+    assert.match(status, /\/model codex fast high/);
   } finally {
     process.env = before;
   }
+});
+
+test('parses Codex client config model commands for Telegram', () => {
+  assert.deepEqual(codexClientConfigArgsFromModelCommand('agent codex'), { handled: false });
+  assert.deepEqual(codexClientConfigArgsFromModelCommand('codex status'), {
+    handled: true,
+    args: ['providers', 'codex']
+  });
+  assert.deepEqual(codexClientConfigArgsFromModelCommand('codex fast high'), {
+    handled: true,
+    args: ['providers', 'codex', '--service-tier', 'fast', '--reasoning-effort', 'high']
+  });
+  assert.deepEqual(codexClientConfigArgsFromModelCommand('codex model=gpt-5.5 tier=fast reasoning=high'), {
+    handled: true,
+    args: [
+      'providers',
+      'codex',
+      '--model',
+      'gpt-5.5',
+      '--service-tier',
+      'fast',
+      '--reasoning-effort',
+      'high'
+    ]
+  });
+  assert.match(
+    (codexClientConfigArgsFromModelCommand('codex weird') as { handled: true; error: string }).error,
+    /do not recognize/
+  );
 });
 
 test('renders recommended model versions for Claude families', () => {

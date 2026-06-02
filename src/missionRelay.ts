@@ -105,8 +105,16 @@ const LEGACY_REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
 const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
-const completionDeliveryCache = new Set<string>();
+const completionDeliveryCache = new Map<string, number>();
+const COMPLETION_CACHE_TTL_MS = 24 * 60 * 60_000;
 const completionDeliveryInFlight = new Set<string>();
+
+function pruneCompletionDeliveryCache(now = Date.now()): void {
+  for (const [key, ts] of completionDeliveryCache) {
+    if (now - ts > COMPLETION_CACHE_TTL_MS) completionDeliveryCache.delete(key);
+  }
+}
+
 const verboseNarrationCounts = new Map<string, number>();
 const cancelledMissionCache = new Map<string, number>();
 const pausedMissionCache = new Map<string, number>();
@@ -361,6 +369,28 @@ export function markMissionRelayCancelled(missionId: string): void {
   cancelledMissionCache.set(normalized, Date.now());
   pausedMissionCache.delete(normalized);
   clearHeartbeatForMission(normalized);
+}
+
+export async function markLatestMissionRelayCancelledForChat(chatId: string | number, userId?: string | number): Promise<string | null> {
+  await loadRegistry();
+  const now = Date.now();
+  const chatKey = String(chatId);
+  const userKey = userId === undefined || userId === null ? null : String(userId);
+  const candidates = Array.from(registry.values())
+    .filter((entry) => entry.chatId === chatKey)
+    .filter((entry) => !userKey || entry.userId === userKey)
+    .filter((entry) => subscriptionBelongsToThisRelay(entry))
+    .map((entry) => {
+      const createdMs = Date.parse(entry.createdAt || '');
+      return { entry, createdMs: Number.isFinite(createdMs) ? createdMs : 0 };
+    })
+    .filter(({ createdMs }) => !createdMs || now - createdMs <= MISSION_STATE_CACHE_TTL_MS)
+    .sort((a, b) => b.createdMs - a.createdMs);
+
+  const latest = candidates[0]?.entry;
+  if (!latest?.missionId) return null;
+  markMissionRelayCancelled(latest.missionId);
+  return latest.missionId;
 }
 
 export function markMissionRelayPaused(missionId: string): void {
@@ -774,7 +804,7 @@ async function sendFetchedCompletionSummary(
         missionRelayTraceExtra(subscription, event, 'mission_completion')
       );
     }
-    completionDeliveryCache.add(event.missionId);
+    completionDeliveryCache.set(event.missionId, Date.now());
     await saveCompletionDeliveryCache();
     await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
     return chunks.length;
@@ -796,7 +826,9 @@ function scheduleDelayedCompletionSummary(
       const completion = await fetchMissionCompletionSummary(event.missionId, { attempts: 12, delayMs: 5000 });
       if (!completion || completionDeliveryCache.has(event.missionId) || shouldSuppressMissionHandoff(event.missionId)) return;
       await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
-    })().catch(() => {});
+    })().catch((err) => {
+      console.error('[CompletionSummary] delivery failed:', err);
+    });
   }, 1000);
 }
 
@@ -1662,14 +1694,15 @@ export function releaseCompletionDeliveryClaimForTests(missionId: string): void 
 }
 
 async function saveCompletionDeliveryCache(): Promise<void> {
-  await writeJsonAtomic(completionDeliveryPathForCurrentRelay(), Array.from(completionDeliveryCache.values()));
+  pruneCompletionDeliveryCache();
+  await writeJsonAtomic(completionDeliveryPathForCurrentRelay(), Array.from(completionDeliveryCache.keys()));
 }
 
 export async function loadCompletionDeliveryCacheForTests(): Promise<void> {
   const entries = (await readJsonFile<string[]>(completionDeliveryPathForCurrentRelay())) || [];
   for (const missionId of entries) {
     if (typeof missionId === 'string' && missionId.trim()) {
-      completionDeliveryCache.add(missionId.trim());
+      completionDeliveryCache.set(missionId.trim(), Date.now());
     }
   }
 }
@@ -2143,6 +2176,11 @@ function isRelayRateLimited(req: IncomingMessage, now = Date.now()): boolean {
   const existing = relayRateLimits.get(key);
   if (!existing || now - existing.startedAt >= RELAY_RATE_LIMIT_WINDOW_MS) {
     relayRateLimits.set(key, { startedAt: now, count: 1 });
+    if (relayRateLimits.size > 500) {
+      for (const [k, v] of relayRateLimits) {
+        if (now - v.startedAt >= RELAY_RATE_LIMIT_WINDOW_MS) relayRateLimits.delete(k);
+      }
+    }
     return false;
   }
   existing.count += 1;

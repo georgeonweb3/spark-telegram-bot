@@ -56,12 +56,16 @@ import {
   isGlobalAgentDoctrineRequest,
   isStandaloneAgentDoctrinePreference,
   isUserMemoryRecallQuestion,
+  isProtectedMissionCancelPronounIntent,
+  isProtectedMissionPausePronounIntent,
+  isProtectedMissionResumePronounIntent,
   parseContextualAccessChangeIntent,
   parseNaturalAccessChangeIntent,
   parseNaturalChipCreateIntent,
   parseNaturalCreatorMissionIntent,
   parseNaturalRecursiveCommandIntent,
   parseMissionUpdatePreferenceIntent,
+  parseContextualSpawnerBoardNaturalIntent,
   parseSpawnerBoardNaturalIntent,
   renderChatRuntimeFailureReply,
   shouldSuppressBuilderReplyForPlainChat,
@@ -121,8 +125,14 @@ test('detects execution confirmation without treating every reply as a mission',
 test('detects no-execution boundaries before pending builds can launch', () => {
   assert.equal(isNoExecutionBoundary('no need we can talk here'), true);
   assert.equal(isNoExecutionBoundary('do not start a mission; just explain the failure class'), true);
+  assert.equal(isNoExecutionBoundary('Can you resume that one? Do not resume it.'), true);
+  assert.equal(isNoExecutionBoundary('Can you pause that one? Do not pause it.'), true);
+  assert.equal(isNoExecutionBoundary('Can you cancel that one? Do not cancel it.'), true);
   assert.equal(isNoExecutionBoundary('not now, maybe later'), true);
   assert.equal(isNoExecutionBoundary('we can discuss here for now'), true);
+  assert.equal(isNoExecutionBoundary('can you resume that one?'), false);
+  assert.equal(isNoExecutionBoundary('can you pause that one?'), false);
+  assert.equal(isNoExecutionBoundary('can you cancel that one?'), false);
   assert.equal(isNoExecutionBoundary('go ahead and build it'), false);
 });
 
@@ -295,19 +305,153 @@ test('asks for clarification on cold localhost requests', () => {
 
 test('routes natural Spawner board questions to board reads', () => {
   assert.equal(parseSpawnerBoardNaturalIntent('show me the current Spawner/Kanban board'), 'board');
+  assert.equal(parseSpawnerBoardNaturalIntent('what is currently running or paused in Mission Control? keep it short and do not start anything.'), 'active_missions');
   assert.equal(parseSpawnerBoardNaturalIntent('did the latest canvas run show up on kanban?'), 'latest_on_kanban');
   assert.equal(parseSpawnerBoardNaturalIntent('which LLM took the latest Spawner job?'), 'latest_provider');
+  assert.equal(parseSpawnerBoardNaturalIntent('which model handled the latest failed Spawner job? Do not start anything.'), 'latest_failed_provider');
+  assert.equal(parseSpawnerBoardNaturalIntent('who handled the broken one? Do not start anything.'), 'latest_failed_provider');
+  assert.equal(parseSpawnerBoardNaturalIntent('who took that one? Do not start anything.'), null);
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('who took that one? Do not start anything.', [
+      'which model handled the latest failed Spawner job? Do not start anything.'
+    ]),
+    'latest_failed_provider'
+  );
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('who took that one? Do not start anything.', [
+      'which LLM took the latest Spawner job?'
+    ]),
+    'latest_provider'
+  );
+  assert.equal(parseSpawnerBoardNaturalIntent('what blocked that one? Do not start anything.'), null);
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('what blocked that one? Do not start anything.', [
+      'which model handled the latest failed Spawner job? Do not start anything.'
+    ]),
+    'latest_failure'
+  );
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('what blocked that one? Do not start anything.', [
+      'which LLM took the latest Spawner job?'
+    ]),
+    null
+  );
+  assert.equal(parseSpawnerBoardNaturalIntent('can I open that one? Do not start anything.'), null);
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('can I open that one? Do not start anything.', [
+      'what failed most recently in Spawner? Do not start anything.'
+    ]),
+    'latest_failure'
+  );
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('can I open that one? Do not start anything.', [
+      'which LLM took the latest Spawner job?'
+    ]),
+    null
+  );
+  assert.equal(parseSpawnerBoardNaturalIntent('is that one still working? Do not start anything.'), null);
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('is that one still working? Do not start anything.', [
+      'what failed most recently in Spawner? Do not start anything.'
+    ]),
+    'latest_failure'
+  );
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('is that one still working? Do not start anything.', [
+      'which LLM took the latest Spawner job?'
+    ]),
+    null
+  );
+  assert.equal(parseSpawnerBoardNaturalIntent('is that one paused or still running? Do not start anything.'), null);
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('is that one paused or still running? Do not start anything.', [
+      'what failed most recently in Spawner? Do not start anything.',
+      'what is currently running or paused in Mission Control? keep it short and do not start anything.'
+    ]),
+    'active_missions'
+  );
+  assert.equal(
+    parseContextualSpawnerBoardNaturalIntent('is that one paused or still running? Do not start anything.', [
+      'what failed most recently in Spawner? Do not start anything.'
+    ]),
+    'latest_failure'
+  );
   assert.equal(parseSpawnerBoardNaturalIntent('what was the mission?'), 'latest_mission');
   assert.equal(parseSpawnerBoardNaturalIntent('which mission was that?'), 'latest_mission');
   assert.equal(parseSpawnerBoardNaturalIntent('what happened'), 'latest_failure');
   assert.equal(parseSpawnerBoardNaturalIntent('why did the latest mission fail?'), 'latest_failure');
+  assert.equal(parseSpawnerBoardNaturalIntent('what failed most recently in Spawner? Do not start anything.'), 'latest_failure');
   assert.equal(parseSpawnerBoardNaturalIntent('no the localhost for the beauty centre'), 'latest_project_preview');
   assert.equal(isLocalSparkServiceRequest('no the localhost for the beauty centre', 'Completed Spawner mission spark-123'), false);
+  assert.equal(
+    parseSpawnerBoardNaturalIntent('Do not start a mission or build anything. Just answer in chat. Summarize what our team has already tried for this Spark issue. Please separate facts we actually know, guesses or assumptions, open questions, and the next safest action. If you do not know our history, say that clearly instead of inventing it.'),
+    null
+  );
   assert.equal(
     parseSpawnerBoardNaturalIntent('the canvas event stream looked good, can you check whether the kanban side saw the same mission?'),
     'latest_on_kanban'
   );
   assert.equal(parseSpawnerBoardNaturalIntent('maybe we should build a tiny kanban app'), null);
+});
+
+test('detects protected mission resume pronouns after active status context', () => {
+  assert.equal(isProtectedMissionResumePronounIntent('can you resume that one?', []), false);
+  assert.equal(
+    isProtectedMissionResumePronounIntent('can you resume that one?', [
+      'what is currently running or paused in Mission Control? keep it short and do not start anything.'
+    ]),
+    true
+  );
+  assert.equal(
+    isProtectedMissionResumePronounIntent('can you resume that one?', [
+      'what failed most recently in Spawner? Do not start anything.'
+    ]),
+    false
+  );
+});
+
+test('gates protected mission pause pronouns after active status context', () => {
+  assert.equal(isProtectedMissionPausePronounIntent('can you pause that one?', []), false);
+  assert.equal(
+    isProtectedMissionPausePronounIntent('can you pause that one?', [
+      'what is currently running or paused in Mission Control? keep it short and do not start anything.'
+    ]),
+    true
+  );
+  assert.equal(
+    isProtectedMissionPausePronounIntent('hold that one', [
+      'what is currently running or paused in Mission Control? keep it short and do not start anything.'
+    ]),
+    true
+  );
+  assert.equal(
+    isProtectedMissionPausePronounIntent('can you pause that one?', [
+      'what failed most recently in Spawner? Do not start anything.'
+    ]),
+    false
+  );
+});
+
+test('detects protected mission cancel pronouns after active status context', () => {
+  assert.equal(isProtectedMissionCancelPronounIntent('can you cancel that one?', []), false);
+  assert.equal(
+    isProtectedMissionCancelPronounIntent('can you cancel that one?', [
+      'what is currently running or paused in Mission Control? keep it short and do not start anything.'
+    ]),
+    true
+  );
+  assert.equal(
+    isProtectedMissionCancelPronounIntent('stop that one', [
+      'what is currently running or paused in Mission Control? keep it short and do not start anything.'
+    ]),
+    true
+  );
+  assert.equal(
+    isProtectedMissionCancelPronounIntent('can you cancel that one?', [
+      'what failed most recently in Spawner? Do not start anything.'
+    ]),
+    false
+  );
 });
 
 test('keeps memory quality dashboard scoping in conversation instead of board reads', () => {
@@ -801,16 +945,18 @@ test('keeps Memory Doctor and answer-audit requests out of stale creator context
 });
 
 test('builds recent-turn evidence for contextual Memory Doctor requests', () => {
-  assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), true);
-  assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), true);
-  assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('what was my previous answer'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('did you lose my context'), true);
 
-  const prompt = buildMemoryDoctorEvidencePrompt('audit previous turn', [
+  const prompt = buildMemoryDoctorEvidencePrompt('what was my previous answer', [
     { role: 'user', text: 'do not build yet, help me think through a domain chip for route confidence' },
     { role: 'assistant', text: 'Good problem to formalize. Route confidence is currently implicit in Builder.' }
   ]);
 
-  assert.match(prompt, /^audit previous turn/);
+  assert.match(prompt, /^what was my previous answer/);
   assert.match(prompt, /Route: memory\.doctor/);
   assert.match(prompt, /Do not ask the user to paste the previous turn unless no recent turns are listed\./);
   assert.match(prompt, /- user: do not build yet, help me think through a domain chip for route confidence/);
@@ -979,6 +1125,14 @@ test('extracts natural recursive commands for QA Operator loops', () => {
       rawCommand: 'sessions',
       reason: 'Natural-language request to list recursive loops.'
     }
+  );
+  assert.equal(
+    parseNaturalRecursiveCommandIntent('Do not start a mission or build anything. Just answer in chat. I am setting up Spark with Codex CLI. I already signed in to Codex CLI, but Spark is asking about provider setup or API keys. Does signed-in Codex CLI use mean I still need an OpenAI API key for Spark? Please explain the difference clearly, and give me the safest recovery path if Spark cannot find Codex CLI or says the provider key is missing.'),
+    null
+  );
+  assert.equal(
+    parseNaturalRecursiveCommandIntent('Do not start a mission or build anything. Just answer in chat. I want to test named Telegram profile setup in a disposable or read-only lane. How should I safely set up and verify a separate Telegram profile without disturbing the primary bot? Please cover using /myid safely, keeping env/config separate, keeping logs separate, warning signs, and what to do if I cannot isolate a disposable lane cleanly.'),
+    null
   );
 });
 
